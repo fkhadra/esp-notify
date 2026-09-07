@@ -8,35 +8,20 @@
 #![deny(clippy::large_stack_frames)]
 
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
-use embassy_time::{Duration, Timer};
-use embedded_graphics::pixelcolor::Rgb565;
-use embedded_graphics::prelude::*;
-use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::clock::CpuClock;
-use esp_hal::delay::Delay;
-use esp_hal::gpio::{Level, Output, OutputConfig};
-use esp_hal::peripherals::{self, Peripherals};
-use esp_hal::rng::Rng;
-use esp_hal::spi::Mode;
-use esp_hal::spi::master::{Config as SpiConfig, Spi};
-use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 
 use esp_println::println;
-use esp_radio::wifi::sta::StationConfig;
-use esp_radio::wifi::{Config, ControllerConfig, WifiController};
-use mipidsi::interface::SpiInterface;
-use mipidsi::models::ST7789;
-use mipidsi::options::ColorInversion;
 use picoserve::extract::Json;
 use picoserve::routing::{get, post};
 use static_cell::StaticCell;
 
 use esp_alloc::HEAP;
 
+use crate::screen::init_screen;
 use crate::wifi::init_wifi;
 
+mod screen;
 mod wifi;
 
 async fn notify(Json(n): Json<Notify>) -> &'static str {
@@ -73,49 +58,6 @@ async fn main(spawner: Spawner) -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    let mut backlight = Output::new(peripherals.GPIO22, Level::High, OutputConfig::default());
-
-    // https://docs.waveshare.com/ESP32-C6-LCD-1.47?variant=ESP32-C6-LCD-1.47#interface-introduction
-    let spi = Spi::new(
-        peripherals.SPI2,
-        SpiConfig::default()
-            .with_frequency(Rate::from_mhz(40))
-            .with_mode(Mode::_0),
-    )
-    .unwrap()
-    .with_sck(peripherals.GPIO7)
-    .with_mosi(peripherals.GPIO6);
-
-    let cs = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
-    let dc = Output::new(peripherals.GPIO15, Level::Low, OutputConfig::default());
-    let rst = Output::new(peripherals.GPIO21, Level::High, OutputConfig::default());
-
-    // let rgb_led = Output::new(peripherals.GPIO8, Level::High, config)
-
-    let mut delay = Delay::default();
-    let spi_device = ExclusiveDevice::new(spi, cs, delay).unwrap();
-
-    let mut buffer = [0u8; 512];
-    let di = SpiInterface::new(spi_device, dc, &mut buffer);
-
-    let mut display = mipidsi::Builder::new(ST7789, di)
-        .reset_pin(rst)
-        .display_size(DISPLAY_SIZE.0, DISPLAY_SIZE.1)
-        .display_offset(DISPLAY_OFFSET.0, DISPLAY_OFFSET.1)
-        // .orientation(Orientation::new().rotate(ROTATION))
-        .invert_colors(ColorInversion::Inverted)
-        .init(&mut delay)
-        .unwrap();
-
-    display.clear(Rgb565::BLACK).unwrap();
-
-    // The following pins are used to bootstrap the chip. They are available
-    // for use, but check the datasheet of the module for more information on them.
-    // - GPIO4
-    // - GPIO5
-    // - GPIO8
-    // - GPIO9
-    // - GPIO15
     // These GPIO pins are in use by some feature of the module and should not be used.
     let _ = peripherals.GPIO24;
     let _ = peripherals.GPIO25;
@@ -127,6 +69,7 @@ async fn main(spawner: Spawner) -> ! {
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 65536);
 
+    // Required for wifi
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
@@ -136,15 +79,23 @@ async fn main(spawner: Spawner) -> ! {
     static TCP_RX: StaticCell<[u8; 1024]> = StaticCell::new();
     static TCP_TX: StaticCell<[u8; 1024]> = StaticCell::new();
 
-    println!("Used: {} ", HEAP.stats());
+    let mut screen = init_screen(
+        peripherals.SPI2,
+        peripherals.GPIO7,
+        peripherals.GPIO6,
+        peripherals.GPIO14,
+        peripherals.GPIO15,
+        peripherals.GPIO21,
+        peripherals.GPIO22,
+    );
+    let net_stack = init_wifi(spawner, peripherals.WIFI).await;
 
-    backlight.toggle();
     let app = picoserve::Router::new()
         .route("/", get(async || "hello from esp-noti\n"))
         .route("/notify", post(notify));
     let config = picoserve::Config::default();
 
-    let net_stack = init_wifi(spawner, peripherals.WIFI).await;
+    println!("Used: {} ", HEAP.stats());
 
     picoserve::Server::new(&app, &config, HTTP_BUF.init([0; 2048]))
         .listen_and_serve(
@@ -158,33 +109,4 @@ async fn main(spawner: Spawner) -> ! {
         .into_never()
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
-}
-
-const DISPLAY_SIZE: (u16, u16) = (172, 320);
-const DISPLAY_OFFSET: (u16, u16) = (34, 0);
-
-#[embassy_executor::task]
-async fn net_task(
-    mut runner: embassy_net::Runner<'static, esp_radio::wifi::Interface<'static>>,
-) -> ! {
-    runner.run().await
-}
-
-#[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) -> ! {
-    loop {
-        match controller.connect_async().await {
-            Ok(info) => {
-                println!("Wifi connected to {:?}", info);
-
-                let info = controller.wait_for_disconnect_async().await.ok();
-                println!("Disconnected: {:?}", info);
-            }
-            Err(e) => {
-                println!("Failed to connect to wifi: {e:?}");
-            }
-        }
-
-        Timer::after(Duration::from_secs(5)).await;
-    }
 }

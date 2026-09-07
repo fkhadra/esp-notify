@@ -1,10 +1,7 @@
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
 use embassy_time::{Duration, Timer};
-use esp_hal::{
-    peripherals::{Peripherals, WIFI},
-    rng::Rng,
-};
+use esp_hal::{peripherals::WIFI, rng::Rng};
 use esp_println::println;
 use esp_radio::wifi::{Config, ControllerConfig, WifiController, sta::StationConfig};
 use static_cell::StaticCell;
