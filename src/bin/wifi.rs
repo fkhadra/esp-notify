@@ -3,7 +3,10 @@ use embassy_net::{Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_hal::{peripherals::WIFI, rng::Rng};
 use esp_println::println;
-use esp_radio::wifi::{Config, ControllerConfig, WifiController, sta::StationConfig};
+use esp_radio::wifi::{
+    Config, ControllerConfig, WifiController,
+    sta::{ScanMethod, StationConfig},
+};
 use static_cell::StaticCell;
 
 const SSID: &str = env!("WIFI_SSID");
@@ -13,7 +16,9 @@ pub async fn init_wifi(spawner: Spawner, wifi: WIFI<'static>) -> Stack<'static> 
     let wifi_conf = Config::Station(
         StationConfig::default()
             .with_ssid(SSID)
-            .with_password(PWD.into()),
+            .with_password(PWD.into())
+            .with_scan_method(ScanMethod::AllChannels)
+            .with_failure_retry_cnt(3),
     );
 
     let (controller, interfaces) = esp_radio::wifi::new(
@@ -27,7 +32,7 @@ pub async fn init_wifi(spawner: Spawner, wifi: WIFI<'static>) -> Stack<'static> 
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
 
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<5>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         config,
@@ -39,9 +44,6 @@ pub async fn init_wifi(spawner: Spawner, wifi: WIFI<'static>) -> Stack<'static> 
     spawner.spawn(connection(controller).unwrap());
 
     stack.wait_config_up().await;
-    let addr = stack.config_v4().unwrap().address;
-
-    println!("My addr: {}", addr.address());
 
     stack
 }
@@ -62,6 +64,12 @@ async fn connection(mut controller: WifiController<'static>) -> ! {
 
                 let info = controller.wait_for_disconnect_async().await.ok();
                 println!("Disconnected: {:?}", info);
+            }
+            Err(esp_radio::wifi::WifiError::Disconnected(info)) => {
+                println!(
+                    "Failed to connect: reason={:?} rssi={} dBm",
+                    info.reason, info.rssi
+                );
             }
             Err(e) => {
                 println!("Failed to connect to wifi: {e:?}");

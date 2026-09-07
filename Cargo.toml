@@ -23,11 +23,13 @@ esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6"] }
 
 embassy-net = { version = "0.9.1", features = [
   "dhcpv4",
+  "dns",
   "icmp",
   "medium-ethernet",
   "tcp",
   "udp",
 ] }
+
 embedded-io = "0.7.1"
 embedded-io-async = "0.7.0"
 esp-alloc = "0.10.0"
@@ -54,6 +56,11 @@ smoltcp = { version = "0.13.0", default-features = false, features = [
   "socket-udp",
 ] }
 
+reqwless = { version = "0.14.0", default-features = false, features = [
+  "embedded-tls",
+] }
+
+
 critical-section = "1.2.0"
 static_cell      = "2.1.1"
 esp-println = { version = "0.17.0", features = ["esp32c6"] }
@@ -62,6 +69,11 @@ serde = { version = "1.0.229", default-features = false, features = ["alloc", "d
 mipidsi = "0.10.0"
 embedded-hal-bus = "0.3.0"
 embedded-graphics = "0.8.2"
+mousefood = { version = "0.5.2", default-features = false }
+ratatui = { version = "0.30.2", default-features = false }
+
+# embedded-tls 0.18 uses der's heapless-gated `SequenceOf`/`SetOf` without enabling the feature
+der = { version = "0.8.2", default-features = false, features = ["heapless"] }
 
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html

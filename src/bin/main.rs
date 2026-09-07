@@ -8,35 +8,33 @@
 #![deny(clippy::large_stack_frames)]
 
 use embassy_executor::Spawner;
+use embassy_net::Stack;
+use embassy_net::dns::DnsSocket;
+use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use esp_hal::clock::CpuClock;
+use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 
 use esp_println::println;
-use picoserve::extract::Json;
-use picoserve::routing::{get, post};
-use static_cell::StaticCell;
 
+use embedded_graphics::mono_font::ascii::FONT_10X20;
 use esp_alloc::HEAP;
+use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
+use ratatui::widgets::{Block, Paragraph};
+use ratatui::{Frame, Terminal};
+use reqwless::client::{HttpClient, TlsConfig};
 
 use crate::screen::init_screen;
+use crate::server::Srv;
 use crate::wifi::init_wifi;
 
 mod screen;
+mod server;
 mod wifi;
 
-async fn notify(Json(n): Json<Notify>) -> &'static str {
-    println!("notify: {} / {}", n.title, n.body);
-    "ok\n"
-}
-
-#[derive(serde::Deserialize)]
-struct Notify {
-    title: alloc::string::String,
-    body: alloc::string::String,
-}
-
 #[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    println!("PANIC: {}", info);
     loop {}
 }
 
@@ -68,6 +66,7 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO30;
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 65536);
+    esp_alloc::heap_allocator!(size: 36 * 1024);
 
     // Required for wifi
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -75,11 +74,8 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
-    static HTTP_BUF: StaticCell<[u8; 2048]> = StaticCell::new();
-    static TCP_RX: StaticCell<[u8; 1024]> = StaticCell::new();
-    static TCP_TX: StaticCell<[u8; 1024]> = StaticCell::new();
-
     let mut screen = init_screen(
+        peripherals.LEDC,
         peripherals.SPI2,
         peripherals.GPIO7,
         peripherals.GPIO6,
@@ -88,25 +84,65 @@ async fn main(spawner: Spawner) -> ! {
         peripherals.GPIO21,
         peripherals.GPIO22,
     );
+    screen.set_brightness(10);
+
+    let backend_config = EmbeddedBackendConfig {
+        font_regular: FONT_10X20,
+        ..Default::default()
+    };
+    let be = EmbeddedBackend::new(&mut screen.display, backend_config);
+    let mut terminal = Terminal::new(be).expect("Hopefully it works");
+
+    terminal.draw(draw).expect("msg");
+
     let net_stack = init_wifi(spawner, peripherals.WIFI).await;
 
-    let app = picoserve::Router::new()
-        .route("/", get(async || "hello from esp-noti\n"))
-        .route("/notify", post(notify));
-    let config = picoserve::Config::default();
+    access_website(net_stack).await;
 
-    println!("Used: {} ", HEAP.stats());
+    loop {}
 
-    picoserve::Server::new(&app, &config, HTTP_BUF.init([0; 2048]))
-        .listen_and_serve(
-            "web",
-            net_stack,
-            80,
-            TCP_RX.init([0; 1024]),
-            TCP_TX.init([0; 1024]),
-        )
-        .await
-        .into_never()
+    // let server = Srv::new();
+    // server.start(net_stack).await.into_never()
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
+}
+
+fn draw(frame: &mut Frame) {
+    let block = Block::bordered().title("Mousefood");
+    let paragraph = Paragraph::new("Initializing network").block(block);
+    frame.render_widget(paragraph, frame.area());
+}
+
+async fn access_website(stack: Stack<'_>) {
+    let mut rx_buffer = [0; 4096];
+    let mut tx_buffer = [0; 4096];
+    let dns = DnsSocket::new(stack);
+    let tcp_state = TcpClientState::<1, 4096, 4096>::new();
+    let tcp = TcpClient::new(stack, &tcp_state);
+    let rng = Rng::new();
+    let tls_seed = rng.random() as u64 | ((rng.random() as u64) << 32);
+
+    let tls = TlsConfig::new(
+        tls_seed,
+        &mut rx_buffer,
+        &mut tx_buffer,
+        reqwless::client::TlsVerify::None,
+    );
+
+    let mut client = HttpClient::new_with_tls(&tcp, &dns, tls);
+    let mut buffer = [0u8; 4096];
+    let mut http_req = client
+        .request(
+            reqwless::request::Method::GET,
+            "https://jsonplaceholder.typicode.com/posts/1",
+        )
+        .await
+        .unwrap();
+    let response = http_req.send(&mut buffer).await.unwrap();
+
+    println!("Got response");
+    let res = response.body().read_to_end().await.unwrap();
+
+    let content = core::str::from_utf8(res).unwrap();
+    println!("{}", content);
 }
