@@ -1,0 +1,77 @@
+[package]
+edition      = "2024"
+name         = "esp-noti"
+rust-version = "1.98"
+version      = "0.1.0"
+autobins     = false
+
+[[bin]]
+name = "esp-noti"
+path = "./src/bin/main.rs"
+
+[dependencies]
+esp-hal = { version = "~1.1.0", features = ["esp32c6", "unstable"] }
+
+esp-rtos = { version = "0.3.0", features = [
+  "embassy",
+  "esp-alloc",
+  "esp-radio",
+  "esp32c6",
+] }
+
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6"] }
+
+embassy-net = { version = "0.9.1", features = [
+  "dhcpv4",
+  "icmp",
+  "medium-ethernet",
+  "tcp",
+  "udp",
+] }
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+esp-alloc = "0.10.0"
+# for more networking protocol support see https://crates.io/crates/edge-net
+embassy-executor = { version = "0.10.0", features = [] }
+embassy-time = "0.5.0"
+esp-radio = { version = "0.18.0", features = [
+  "esp-alloc",
+  "esp32c6",
+  "unstable",
+  "wifi",
+] }
+smoltcp = { version = "0.13.0", default-features = false, features = [
+  "auto-icmp-echo-reply",
+  "medium-ethernet",
+  "multicast",
+  "proto-dhcpv4",
+  "proto-dns",
+  "proto-ipv4",
+  "socket-dns",
+  "socket-icmp",
+  "socket-raw",
+  "socket-tcp",
+  "socket-udp",
+] }
+
+critical-section = "1.2.0"
+static_cell      = "2.1.1"
+esp-println = { version = "0.17.0", features = ["esp32c6"] }
+picoserve = { version = "0.20.0", features = ["embassy", "json"] }
+serde = { version = "1.0.229", default-features = false, features = ["alloc", "derive"] }
+mipidsi = "0.10.0"
+embedded-hal-bus = "0.3.0"
+embedded-graphics = "0.8.2"
+
+
+# For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.dev]
+# The default debug profile is too slow and too big for resource-constrained devices.
+# Always build with some optimizations enabled.
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1     # LLVM can perform better optimizations using a single thread
+debug         = 2     # prefer slower builds but better debugging experience
+lto           = 'fat'
+opt-level     = 's'
