@@ -792,6 +792,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-graphics-unicodefonts"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a82ef1580d1bff3e89bd3e68069acb24910b66001aaab1738ce9de8d03d2ab1e"
+dependencies = [
+ "embedded-graphics",
+]
+
+[[package]]
 name = "embedded-hal"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -909,6 +918,7 @@ dependencies = [
  "heapless 0.9.3",
  "hkdf",
  "hmac",
+ "log",
  "p256",
  "p384",
  "portable-atomic",
@@ -1073,11 +1083,13 @@ dependencies = [
  "der 0.8.2",
  "embassy-executor",
  "embassy-net",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-graphics",
  "embedded-hal-bus",
  "embedded-io 0.7.1",
  "embedded-io-async 0.7.0",
+ "embedded-tls",
  "esp-alloc",
  "esp-bootloader-esp-idf",
  "esp-hal",
@@ -1090,7 +1102,7 @@ dependencies = [
  "ratatui",
  "reqwless",
  "serde",
- "smoltcp",
+ "serde_json",
  "static_cell",
 ]
 
@@ -1780,6 +1792,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f494a6d8c84e4be6de959c899bced1953fab377cd54dd1a9f911fa759486306"
 dependencies = [
  "embedded-graphics",
+ "embedded-graphics-unicodefonts",
  "ratatui-core",
  "thiserror",
 ]
@@ -2342,6 +2355,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json"
+version = "1.0.151"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
 name = "serde_yaml"
 version = "0.9.34+deprecated"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2856,3 +2882,9 @@ name = "zeroize"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

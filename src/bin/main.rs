@@ -7,29 +7,33 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use alloc::vec::Vec;
 use embassy_executor::Spawner;
 use embassy_net::Stack;
-use embassy_net::dns::DnsSocket;
-use embassy_net::tcp::client::{TcpClient, TcpClientState};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
+use embassy_time::{Duration, Ticker};
 use esp_hal::clock::CpuClock;
-use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 
+use alloc::string::ToString;
 use esp_println::println;
 
-use embedded_graphics::mono_font::ascii::FONT_10X20;
-use esp_alloc::HEAP;
+use mousefood::fonts::mono_10x20_atlas;
 use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::style::{Color, Style, Stylize};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use reqwless::client::{HttpClient, TlsConfig};
+use static_cell::StaticCell;
 
-use crate::screen::init_screen;
-use crate::server::Srv;
+use crate::screen::{Screen, init_screen};
+use crate::web_status::{Service, ServiceStatus, fetch_status};
 use crate::wifi::init_wifi;
 
 mod screen;
 mod server;
+mod web_status;
 mod wifi;
 
 #[panic_handler]
@@ -40,6 +44,27 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 extern crate alloc;
 
+use alloc::string::String;
+
+/// What the display should be showing.
+enum UiSig {
+    Connecting,
+    StatusUpdate(ServiceStatus),
+    Post(String),
+    Connected(String),
+    Error,
+}
+
+/// Latest UI state. A `Signal` rather than a `Channel` so a redraw that is
+/// still in flight is superseded instead of queued.
+static UI: Signal<CriticalSectionRawMutex, UiSig> = Signal::new();
+
+static ENDPOINT: [Service; 3] = [Service::Github, Service::Anthropic, Service::Cloudflare];
+
+struct UiState {
+    statuses: [Option<ServiceStatus>; ENDPOINT.len()],
+}
+
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -49,9 +74,11 @@ esp_bootloader_esp_idf::esp_app_desc!();
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 #[esp_rtos::main]
-async fn main(spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) {
     // generator version: 1.3.0
     // generator parameters: --chip esp32c6 -o esp32c6-mini-1 -o unstable-hal -o embassy -o alloc -o wifi
+
+    esp_println::logger::init_logger_from_env();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -74,7 +101,10 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
-    let mut screen = init_screen(
+    // The render task borrows the display for `'static`, so the screen has to
+    // outlive this stack frame.
+    static SCREEN: StaticCell<Screen> = StaticCell::new();
+    let screen = SCREEN.init(init_screen(
         peripherals.LEDC,
         peripherals.SPI2,
         peripherals.GPIO7,
@@ -83,23 +113,20 @@ async fn main(spawner: Spawner) -> ! {
         peripherals.GPIO15,
         peripherals.GPIO21,
         peripherals.GPIO22,
-    );
-    screen.set_brightness(10);
+    ));
+    screen.set_brightness(5);
 
-    let backend_config = EmbeddedBackendConfig {
-        font_regular: FONT_10X20,
-        ..Default::default()
-    };
-    let be = EmbeddedBackend::new(&mut screen.display, backend_config);
-    let mut terminal = Terminal::new(be).expect("Hopefully it works");
+    // let mut C: Channel<NoopRawMutex, UiSig, 2> = Channel::new();
 
-    terminal.draw(draw).expect("msg");
+    spawner.spawn(render(screen).unwrap());
+    UI.signal(UiSig::Connecting);
 
     let net_stack = init_wifi(spawner, peripherals.WIFI).await;
+    let addr = net_stack.config_v4().expect("msg").address;
 
-    access_website(net_stack).await;
+    UI.signal(UiSig::Connected(addr.address().to_string()));
 
-    loop {}
+    spawner.spawn(monitor_status(net_stack).unwrap());
 
     // let server = Srv::new();
     // server.start(net_stack).await.into_never()
@@ -107,42 +134,101 @@ async fn main(spawner: Spawner) -> ! {
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
 }
 
-fn draw(frame: &mut Frame) {
-    let block = Block::bordered().title("Mousefood");
-    let paragraph = Paragraph::new("Initializing network").block(block);
+#[embassy_executor::task]
+async fn monitor_status(net_stack: Stack<'static>) -> ! {
+    let mut ticker = Ticker::every(Duration::from_secs(20));
+    let endpoints = [Service::Github, Service::Anthropic, Service::Cloudflare];
+
+    loop {
+        for endpoint in &endpoints {
+            match fetch_status(net_stack, endpoint).await {
+                Ok(res) => {
+                    println!("All good {}: {}", endpoint, res.description);
+                    UI.signal(UiSig::StatusUpdate(res));
+                }
+                Err(err) => {
+                    println!("Failed to fetch {endpoint} {err}")
+                }
+            }
+        }
+
+        ticker.next().await;
+    }
+}
+
+#[embassy_executor::task]
+async fn render(screen: &'static mut Screen) -> ! {
+    let backend_config = EmbeddedBackendConfig {
+        font_regular: mono_10x20_atlas(),
+        ..Default::default()
+    };
+    let be = EmbeddedBackend::new(&mut screen.display, backend_config);
+    let mut terminal = Terminal::new(be).expect("Hopefully it works");
+    let mut state = UiState {
+        statuses: [None, None, None],
+    };
+
+    loop {
+        let sig = UI.wait().await;
+
+        terminal
+            .draw(|frame| draw(frame, &mut state, sig))
+            .expect("msg");
+    }
+}
+
+fn draw(frame: &mut Frame, state: &mut UiState, sig: UiSig) {
+    // let _text = match sig {
+    //     UiSig::Connecting => "Initializing network",
+    //     UiSig::Post(body) => body.as_str(),
+    //     UiSig::Error => "Request failed",
+    //     UiSig::Connected(ip) => ip,
+    //     UiSig::StatusUpdate(res) => {
+    //         match res.name {
+    //         Service::Github => {}
+    //         Service::Anthropic => {}
+    //         Service::Cloudflare => {}
+    //     }
+    //     },
+    // };
+    if let UiSig::StatusUpdate(res) = sig {
+        let idx = res.name.index();
+        state.statuses[idx] = Some(res);
+    }
+
+    let mut bdy: Vec<Line<'_>> = Vec::new();
+
+    for st in &state.statuses {
+        if let Some(s) = st {
+            bdy.push(Line::from(alloc::vec![
+                Span::styled(
+                    "\u{25cf} ",
+                    Style::default().fg(indicator_color(&s.indicator))
+                ),
+                Span::from(s.name.to_string()),
+            ]));
+        }
+    }
+
+    let body = Text::from(bdy);
+
+    let paragraph = Paragraph::new(body)
+        .block(
+            Block::bordered()
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::LightMagenta))
+                .title("Status"),
+        )
+        .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, frame.area());
 }
 
-async fn access_website(stack: Stack<'_>) {
-    let mut rx_buffer = [0; 4096];
-    let mut tx_buffer = [0; 4096];
-    let dns = DnsSocket::new(stack);
-    let tcp_state = TcpClientState::<1, 4096, 4096>::new();
-    let tcp = TcpClient::new(stack, &tcp_state);
-    let rng = Rng::new();
-    let tls_seed = rng.random() as u64 | ((rng.random() as u64) << 32);
-
-    let tls = TlsConfig::new(
-        tls_seed,
-        &mut rx_buffer,
-        &mut tx_buffer,
-        reqwless::client::TlsVerify::None,
-    );
-
-    let mut client = HttpClient::new_with_tls(&tcp, &dns, tls);
-    let mut buffer = [0u8; 4096];
-    let mut http_req = client
-        .request(
-            reqwless::request::Method::GET,
-            "https://jsonplaceholder.typicode.com/posts/1",
-        )
-        .await
-        .unwrap();
-    let response = http_req.send(&mut buffer).await.unwrap();
-
-    println!("Got response");
-    let res = response.body().read_to_end().await.unwrap();
-
-    let content = core::str::from_utf8(res).unwrap();
-    println!("{}", content);
+fn indicator_color(indicator: &str) -> Color {
+    match indicator {
+        "none" => Color::Green,
+        "minor" => Color::Yellow,
+        "major" => Color::LightRed,
+        "critical" => Color::Red,
+        _ => Color::DarkGray,
+    }
 }
