@@ -10,7 +10,7 @@ name = "esp-noti"
 path = "./src/bin/main.rs"
 
 [dependencies]
-esp-hal = { version = "~1.1.0", features = ["esp32c6", "unstable"] }
+esp-hal = { version = "1.1.2", features = ["esp32c6", "unstable"] }
 esp-rtos = { version = "0.3.0", features = [
   "embassy",
   "esp-alloc",
