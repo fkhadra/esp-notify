@@ -138,18 +138,20 @@ impl ServiceStatus {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Service {
     Github,
-    Anthropic,
     Cloudflare,
+    Tailscale,
+    Anthropic,
     OpenAI,
 }
 
 impl fmt::Display for Service {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let val = match self {
-            Service::Anthropic => "Anthropic",
-            Service::Github => "Github",
-            Service::Cloudflare => "Cloudflare",
-            Service::OpenAI => "OpenAI",
+            Self::Anthropic => "Anthropic",
+            Self::Github => "Github",
+            Self::Cloudflare => "Cloudflare",
+            Self::OpenAI => "OpenAI",
+            Self::Tailscale => "Tailscale",
         };
 
         write!(f, "{val}")
@@ -157,10 +159,11 @@ impl fmt::Display for Service {
 }
 
 impl Service {
-    pub const ALL: [Service; 4] = [
+    pub const ALL: [Service; 5] = [
         Service::Github,
-        Service::Anthropic,
         Service::Cloudflare,
+        Service::Tailscale,
+        Service::Anthropic,
         Service::OpenAI,
     ];
 
@@ -170,10 +173,11 @@ impl Service {
 
     fn host(&self) -> &'static str {
         match self {
-            Service::Github => "www.githubstatus.com",
-            Service::Anthropic => "status.claude.com",
-            Service::Cloudflare => "www.cloudflarestatus.com",
-            Service::OpenAI => "status.openai.com",
+            Self::Github => "www.githubstatus.com",
+            Self::Anthropic => "status.claude.com",
+            Self::Cloudflare => "www.cloudflarestatus.com",
+            Self::OpenAI => "status.openai.com",
+            Self::Tailscale => "status.tailscale.com",
         }
     }
 
@@ -183,7 +187,7 @@ impl Service {
 
     fn incident_url(&self) -> Option<String> {
         match self {
-            Self::OpenAI => None,
+            Self::OpenAI | Self::Tailscale => None,
             _ => Some(self.url("incidents/unresolved.json")),
         }
     }
