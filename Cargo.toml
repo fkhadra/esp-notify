@@ -62,6 +62,8 @@ ratatui = { version = "0.30.2", default-features = false }
 # embedded-tls 0.18 uses der's heapless-gated `SequenceOf`/`SetOf` without enabling the feature
 der = { version = "0.8.2", default-features = false, features = ["heapless"] }
 embedded-tls = { version = "0.18", default-features = false, features = ["log"] }
+jiff = { version = "0.2.35", default-features = false, features = ["alloc"] }
+anyhow = { version = "1.0.104", default-features = false }
 
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html

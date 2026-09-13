@@ -12,7 +12,7 @@ use static_cell::StaticCell;
 const SSID: &str = env!("WIFI_SSID");
 const PWD: &str = env!("WIFI_PWD");
 
-pub async fn init_wifi(spawner: Spawner, wifi: WIFI<'static>) -> Stack<'static> {
+pub async fn init_network(spawner: Spawner, wifi: WIFI<'static>) -> Stack<'static> {
     let wifi_conf = Config::Station(
         StationConfig::default()
             .with_ssid(SSID)

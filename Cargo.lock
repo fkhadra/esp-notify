@@ -59,6 +59,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c583acf993cf4245c4acb0a2cc2ab1f9cc097de73411bb6d3647ff6af2b1013d"
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "as-slice"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1085,6 +1091,7 @@ checksum = "44d5a63d730b8c56e6b32773e35fcc4988d7d2e5c64d521652317d3ebddf2b52"
 name = "esp-noti"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "critical-section",
  "der 0.8.2",
  "embassy-executor",
@@ -1102,6 +1109,7 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
+ "jiff",
  "mipidsi",
  "mousefood",
  "picoserve",
