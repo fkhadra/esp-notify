@@ -49,3 +49,24 @@ impl Led {
         let _ = self.channel.transmit(&codes).await;
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+    Green,
+    Yellow,
+    Orange,
+    Red,
+    Magenta,
+}
+
+impl From<Color> for (u8, u8, u8) {
+    fn from(color: Color) -> Self {
+        match color {
+            Color::Green => (0, 255, 0),
+            Color::Yellow => (255, 255, 0),
+            Color::Orange => (255, 165, 0),
+            Color::Red => (255, 0, 0),
+            Color::Magenta => (255, 0, 255),
+        }
+    }
+}

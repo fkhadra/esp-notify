@@ -11,16 +11,17 @@ use embassy_executor::Spawner;
 
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::Input;
+use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::timer::timg::TimerGroup;
 
 use esp_println::println;
 
-use crate::led::Led;
+use crate::led::{Color, Led};
 use crate::screen::{Backlight, init_display};
+use crate::server::start_server;
 use crate::state::{STATE, set_state};
 use crate::ui::{cycle_pages, render_ui};
-use crate::web_mon::{Severity, start_monitoring};
+use crate::web_mon::start_monitoring;
 use crate::wifi::init_network;
 
 mod fetcher;
@@ -107,55 +108,62 @@ async fn main(spawner: Spawner) {
     start_monitoring(spawner, net_stack);
     spawner.spawn(ambient(backlight, led).unwrap());
 
-    //     let button = Input::new(
-    //     peripherals.GPIO9,
-    //     InputConfig::default().with_pull(Pull::Up),
-    // );
+    let button = Input::new(
+        peripherals.GPIO9,
+        InputConfig::default().with_pull(Pull::Up),
+    );
 
-    // spawner.spawn(button_task(button).unwrap());
+    spawner.spawn(button_task(button).unwrap());
 
-    // update(|s| s.ip = Some(addr.address().to_string())).await;
-
-    // spawner.spawn(monitor_status(net_stack, Fetcher::new()).unwrap());
-
-    // let server = Srv::new();
-    // server.start(net_stack).await.into_never()
+    start_server(net_stack).await;
 }
 
 #[embassy_executor::task]
 async fn button_task(mut button: Input<'static>) {
     loop {
-        // Yield execution until a falling edge (button press) is detected
         button.wait_for_falling_edge().await;
 
-        // update(|s| s.page = s.page.next()).await;
+        set_state(|s| {
+            if let Some(notifications) = &mut s.notifications {
+                notifications.pop();
+
+                if notifications.is_empty() {
+                    s.notifications = None;
+                    s.page = s.page.next();
+                }
+            } else {
+                s.page = s.page.next();
+            }
+        })
+        .await;
 
         // Simple software debouncing: ignore noise/bounce signals for 50ms
         Timer::after(Duration::from_millis(50)).await;
 
-        // Wait until the button is released before listening for the next press
         button.wait_for_rising_edge().await;
     }
 }
 
 #[embassy_executor::task]
 async fn ambient(backlight: Backlight, mut led: Led) -> ! {
-    let mut shown: Option<Severity> = None;
+    let mut led_color: Color = Color::Green;
 
     loop {
         let (severity, has_notification) = {
             let guard = STATE.lock().await;
-            (guard.worst_severity(), guard.has_notification)
+
+            (guard.worst_severity(), guard.notifications.is_some())
         };
 
         if has_notification {
-            led.set((255, 0, 255)).await;
-        } else if shown != Some(severity) {
-            led.set(severity.to_rgb()).await;
+            led_color = Color::Magenta;
+        } else if led_color != Color::from(severity) {
             let brightness = if severity.to_number() > 0 { 10 } else { 5 };
             backlight.set_brightness(brightness);
-            shown = Some(severity);
+            led_color = Color::from(severity);
         }
+
+        led.set(led_color.into()).await;
 
         Timer::after(Duration::from_secs(1)).await;
     }

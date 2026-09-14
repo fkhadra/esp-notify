@@ -1,14 +1,16 @@
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use embassy_net::Ipv4Cidr;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
+use serde::Deserialize;
 
 use crate::web_mon::{Service, ServiceStatus, Severity};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
     Overview,
     Detail(usize),
     Network,
+    Notification,
 }
 
 impl Page {
@@ -17,9 +19,15 @@ impl Page {
             Page::Overview => Page::Detail(0),
             Page::Detail(i) if i + 1 < Service::ALL.len() => Page::Detail(i + 1),
             Page::Detail(_) => Page::Overview,
-            Page::Network => Page::Overview,
+            Page::Network | Page::Notification => Page::Overview,
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct Notification {
+    pub title: String,
+    pub content: String,
 }
 
 pub struct State {
@@ -27,7 +35,7 @@ pub struct State {
     pub service_errors: [Option<String>; Service::ALL.len()],
     pub page: Page,
     pub ip: Option<Ipv4Cidr>,
-    pub has_notification: bool,
+    pub notifications: Option<Vec<Notification>>,
 }
 
 impl State {
@@ -37,7 +45,7 @@ impl State {
             service_errors: [const { None }; Service::ALL.len()],
             page: Page::Network,
             ip: None,
-            has_notification: false,
+            notifications: None,
         }
     }
 

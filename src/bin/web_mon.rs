@@ -7,7 +7,7 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Ticker};
 use serde::Deserialize;
 
-use crate::{fetcher::Fetcher, state::set_state};
+use crate::{fetcher::Fetcher, led::Color, state::set_state};
 
 #[derive(Deserialize)]
 struct Status {
@@ -104,18 +104,24 @@ impl Severity {
         }
     }
 
-    pub fn to_rgb(&self) -> (u8, u8, u8) {
+    pub fn to_rgb(self) -> (u8, u8, u8) {
         const BRIGHTNESS: u16 = 50;
+        let (r, g, b): (u8, u8, u8) = Color::from(self).into();
 
-        let (r, g, b) = match self {
-            Self::None => (0, 255, 0),
-            Self::Minor => (255, 140, 0),
-            Self::Major => (255, 40, 0),
-            Self::Critical => (255, 0, 0),
-        };
         let scale = |c: u8| (c as u16 * BRIGHTNESS / 100) as u8;
 
         (scale(r), scale(g), scale(b))
+    }
+}
+
+impl From<Severity> for Color {
+    fn from(value: Severity) -> Self {
+        match value {
+            Severity::None => Color::Green,
+            Severity::Minor => Color::Yellow,
+            Severity::Major => Color::Orange,
+            Severity::Critical => Color::Red,
+        }
     }
 }
 

@@ -1,8 +1,4 @@
-use alloc::{
-    format,
-    string::ToString,
-    vec::Vec,
-};
+use alloc::{format, string::ToString, vec::Vec};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker, with_timeout};
 use esp_alloc::HEAP;
@@ -32,6 +28,12 @@ pub async fn cycle_pages() -> ! {
 
     loop {
         ticker.next().await;
+
+        let has_notification = STATE.lock().await.notifications.is_some();
+
+        if has_notification {
+            continue;
+        }
 
         set_state(|s| {
             s.page = s.page.next();
@@ -64,6 +66,7 @@ fn render_page(frame: &mut Frame, state: &State) {
         Page::Overview => render_overview(frame, &state),
         Page::Detail(i) => render_detail(frame, &state, i),
         Page::Network => render_initialization(frame, &state),
+        Page::Notification => render_notification(frame, &state),
     }
 }
 
@@ -79,6 +82,23 @@ fn render_initialization(frame: &mut Frame, state: &State) {
     body.extend(Text::raw(format!("{}", HEAP.stats())));
 
     frame.render_widget(Paragraph::new(body).block(block), frame.area());
+}
+
+fn render_notification(frame: &mut Frame, state: &State) {
+    if let Some(n) = state.notifications.as_ref() {
+        if let Some(el) = n.last() {
+            let block = new_block()
+                .title(el.title.as_str())
+                .title_bottom(Line::from(format!("{} unread", n.len())).right_aligned());
+
+            frame.render_widget(
+                Paragraph::new(Text::from(el.content.clone()))
+                    .block(block)
+                    .wrap(Wrap { trim: true }),
+                frame.area(),
+            );
+        }
+    }
 }
 
 fn render_overview(frame: &mut Frame, state: &State) {
