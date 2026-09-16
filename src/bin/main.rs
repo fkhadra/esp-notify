@@ -19,7 +19,7 @@ use esp_println::println;
 use crate::led::{Color, Led};
 use crate::screen::{Backlight, init_display};
 use crate::server::start_server;
-use crate::state::{STATE, set_state};
+use crate::state::{Page, STATE, set_state};
 use crate::ui::{cycle_pages, render_ui};
 use crate::web_mon::start_monitoring;
 use crate::wifi::init_network;
@@ -41,6 +41,9 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 extern crate alloc;
+
+const SSID: &str = env!("WIFI_SSID");
+const PASSWORD: &str = env!("WIFI_PWD");
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -91,7 +94,7 @@ async fn main(spawner: Spawner) {
 
     render_ui(spawner, display);
 
-    let net_stack = init_network(spawner, peripherals.WIFI).await;
+    let net_stack = init_network(spawner, peripherals.WIFI, SSID, PASSWORD).await;
     let ip = net_stack
         .config_v4()
         .expect("should acquire address")
@@ -129,7 +132,7 @@ async fn button_task(mut button: Input<'static>) {
 
                 if notifications.is_empty() {
                     s.notifications = None;
-                    s.page = s.page.next();
+                    s.page = Page::Overview;
                 }
             } else {
                 s.page = s.page.next();

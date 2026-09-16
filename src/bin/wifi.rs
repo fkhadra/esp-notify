@@ -9,14 +9,16 @@ use esp_radio::wifi::{
 };
 use static_cell::StaticCell;
 
-const SSID: &str = env!("WIFI_SSID");
-const PWD: &str = env!("WIFI_PWD");
-
-pub async fn init_network(spawner: Spawner, wifi: WIFI<'static>) -> Stack<'static> {
+pub async fn init_network(
+    spawner: Spawner,
+    wifi: WIFI<'static>,
+    ssid: &str,
+    password: &str,
+) -> Stack<'static> {
     let wifi_conf = Config::Station(
         StationConfig::default()
-            .with_ssid(SSID)
-            .with_password(PWD.into())
+            .with_ssid(ssid)
+            .with_password(password.into())
             .with_scan_method(ScanMethod::AllChannels)
             .with_failure_retry_cnt(3),
     );
