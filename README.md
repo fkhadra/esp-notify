@@ -1,4 +1,4 @@
-# esp-noti
+# esp-notify
 
 Desk status monitor on an ESP32-C6. Polls service status pages and receives notifications.
 
@@ -25,6 +25,7 @@ Desk status monitor on an ESP32-C6. Polls service status pages and receives noti
 Requires [espflash](https://github.com/esp-rs/espflash).
 
 ```sh
+cargo install espflash
 WIFI_SSID=<ssid> WIFI_PWD=<password> cargo run --release
 ```
 
